@@ -58,8 +58,9 @@ async function publish(req, res) {
 async function getDetail(req, res) {
   try {
     const { id } = req.params
-    // req.userId 可能为空（未登录也可查看，但联系方式脱敏）
-    const item = await itemService.getDetail(parseInt(id), req.userId)
+    // 管理员查看时不脱敏联系方式
+    const isAdmin = req.userRole === 'admin'
+    const item = await itemService.getDetail(parseInt(id), req.userId, isAdmin)
     res.json(success(item))
   } catch (err) {
     res.json(error(err.code || 500, err.message || '获取详情失败'))
@@ -73,14 +74,17 @@ async function getDetail(req, res) {
 async function getList(req, res) {
   try {
     const { type, keyword, category, location, status, page, page_size } = req.query
+    // 管理员可查看所有状态的物品，不脱敏联系方式
+    const isAdmin = req.userRole === 'admin'
     const result = await itemService.getList({
       type,
       keyword,
       category,
       location,
-      status,
+      status: isAdmin ? (status || undefined) : (status || 'active'), // 非管理员默认只看active
       page: page || 1,
-      pageSize: page_size || 10
+      pageSize: page_size || 10,
+      isAdmin
     })
     res.json(success(result))
   } catch (err) {
@@ -133,4 +137,63 @@ async function markAsFound(req, res) {
   }
 }
 
-module.exports = { publish, getDetail, getList, getMyItems, markAsFound }
+/**
+ * 管理员删除物品（也允许发布者删除）
+ * DELETE /api/items/:id
+ */
+async function deleteItem(req, res) {
+  try {
+    const { id } = req.params
+    const isAdmin = req.userRole === 'admin'
+    await itemService.deleteItem(parseInt(id), req.userId, isAdmin)
+    res.json(success(null, '删除成功'))
+  } catch (err) {
+    res.json(error(err.code || 500, err.message || '删除失败'))
+  }
+}
+
+/**
+ * 编辑物品信息（仅发布者）
+ * PUT /api/items/:id
+ */
+async function updateItem(req, res) {
+  try {
+    const { id } = req.params
+    const { name, category, location, occur_time, contact, description, images } = req.body
+    const item = await itemService.updateItem(parseInt(id), req.userId, {
+      name, category, location, occur_time, contact, description, images
+    })
+    res.json(success(item, '编辑成功'))
+  } catch (err) {
+    res.json(error(err.code || 500, err.message || '编辑失败'))
+  }
+}
+
+/**
+ * 管理员强制更新物品状态
+ * PUT /api/items/:id/admin-status（仅管理员）
+ * Body: { status: "closed" | "active" }
+ */
+async function adminUpdateStatus(req, res) {
+  try {
+    const { id } = req.params
+    const { status } = req.body
+
+    if (!status || !['active', 'found', 'closed'].includes(status)) {
+      return res.json(error(400, 'status 必须为 active/found/closed'))
+    }
+
+    const itemModel = require('../models/item.model')
+    const item = await itemModel.findById(parseInt(id))
+    if (!item) {
+      return res.json(error(404, '物品不存在'))
+    }
+
+    await itemModel.updateStatus(parseInt(id), status)
+    res.json(success(null, `管理员已将状态更新为 ${status}`))
+  } catch (err) {
+    res.json(error(err.code || 500, err.message || '操作失败'))
+  }
+}
+
+module.exports = { publish, getDetail, getList, getMyItems, markAsFound, deleteItem, adminUpdateStatus, updateItem }

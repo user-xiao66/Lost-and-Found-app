@@ -13,7 +13,7 @@ const notificationController = require('../controllers/notification.controller')
 const matchController = require('../controllers/match.controller')
 
 // 引入认证中间件
-const { auth, optionalAuth } = require('../middleware/auth')
+const { auth, optionalAuth, adminAuth } = require('../middleware/auth')
 
 // 引入上传中间件
 const upload = require('../middleware/upload')
@@ -29,12 +29,19 @@ router.post('/users/login', userController.login)
 // 获取用户资料：GET /api/users/profile（需登录）
 router.get('/users/profile', auth, userController.getProfile)
 
+// 更新用户资料：PUT /api/users/profile（需登录）
+router.put('/users/profile', auth, userController.updateProfile)
+
 // ==================== 物品路由 ====================
 
 // 图片上传：POST /api/upload（需登录）
 router.post('/upload', auth, upload.array('images', 4), (req, res) => {
-  // multer 处理完成后，返回文件访问 URL 列表
-  const urls = req.files.map(file => `/uploads/${file.filename}`)
+  // 构建完整 URL（从请求 Host 头推断服务器地址）
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol
+  const host = req.get('host')
+  const baseUrl = `${protocol}://${host}`
+
+  const urls = req.files.map(file => `${baseUrl}/uploads/${file.filename}`)
   res.json({
     code: 200,
     message: '上传成功',
@@ -59,6 +66,17 @@ router.get('/items/:id/matches', optionalAuth, matchController.getMatches)
 
 // 标记已找到/已关闭：PUT /api/items/:id/status（需登录）
 router.put('/items/:id/status', auth, itemController.markAsFound)
+
+// ==================== 管理员路由 ====================
+
+// 编辑物品：PUT /api/items/:id（仅发布者）
+router.put('/items/:id', auth, itemController.updateItem)
+
+// 删除物品：DELETE /api/items/:id（发布者或管理员）
+router.delete('/items/:id', auth, itemController.deleteItem)
+
+// 管理员强制更新状态：PUT /api/items/:id/admin-status（仅管理员）
+router.put('/items/:id/admin-status', adminAuth, itemController.adminUpdateStatus)
 
 // ==================== 通知路由 ====================
 

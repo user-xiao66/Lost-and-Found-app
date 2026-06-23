@@ -69,4 +69,19 @@ async function getProfile(req, res) {
   }
 }
 
-module.exports = { register, login, getProfile }
+/**
+ * 更新用户资料
+ * PUT /api/users/profile
+ * Body: { nickname?, avatar? }
+ */
+async function updateProfile(req, res) {
+  try {
+    const { nickname, avatar } = req.body
+    const user = await userService.updateProfile(req.userId, { nickname, avatar })
+    res.json(success(user, '资料更新成功'))
+  } catch (err) {
+    res.json(error(err.code || 500, err.message || '更新失败'))
+  }
+}
+
+module.exports = { register, login, getProfile, updateProfile }

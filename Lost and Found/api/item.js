@@ -3,7 +3,7 @@
  * 包含物品列表、详情、发布、状态更新、我的发布
  */
 
-import { get, post, put } from './request.js'
+import { get, post, put, BASE_URL } from './request.js'
 
 // ==================== 图片上传（原生 uni.uploadFile） ====================
 
@@ -26,7 +26,7 @@ export function uploadImages(filePaths) {
 
     filePaths.forEach((path, index) => {
       uni.uploadFile({
-        url: 'http://10.21.130.165:3000/api/upload',
+        url: BASE_URL.replace('/api', '') + '/api/upload',
         filePath: path,
         name: 'images',
         header: {
@@ -111,4 +111,62 @@ export function getMyItems(params = {}) {
  */
 export function getMatches(id) {
   return get(`/items/${id}/matches`)
+}
+
+// ==================== 管理员 API ====================
+
+/**
+ * 删除物品（管理员操作，软删除标记为 closed）
+ * @param {number} id - 物品 ID
+ * @returns {Promise}
+ */
+export function deleteItem(id) {
+  return del(`/items/${id}`)
+}
+
+/**
+ * 管理员强制更新物品状态
+ * @param {number} id     - 物品 ID
+ * @param {string} status - 'active' | 'found' | 'closed'
+ * @returns {Promise}
+ */
+export function adminUpdateStatus(id, status) {
+  return put(`/items/${id}/admin-status`, { status })
+}
+
+/**
+ * 编辑物品信息（仅发布者）
+ * @param {number} id - 物品 ID
+ * @param {Object} data - 与 publish 相同的字段
+ */
+export function updateItem(id, data) {
+  return put(`/items/${id}`, data)
+}
+
+// 封装 DELETE 请求（request.js 中未暴露，在此直接使用 uni.request）
+function del(url) {
+  return new Promise((resolve, reject) => {
+    const token = uni.getStorageSync('token')
+    uni.request({
+      url: BASE_URL + url,
+      method: 'DELETE',
+      header: {
+        'Content-Type': 'application/json',
+        Authorization: token ? `Bearer ${token}` : ''
+      },
+      success: (res) => {
+        const { code, message, data } = res.data
+        if (code !== 200) {
+          uni.showToast({ title: message || '操作失败', icon: 'none' })
+          reject(new Error(message))
+          return
+        }
+        resolve(data)
+      },
+      fail: (err) => {
+        uni.showToast({ title: '网络异常', icon: 'none' })
+        reject(err)
+      }
+    })
+  })
 }

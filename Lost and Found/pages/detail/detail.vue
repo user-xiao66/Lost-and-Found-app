@@ -125,6 +125,10 @@
         <button class="found-btn" @click="handleMarkFound">
           标记已找到
         </button>
+        <view class="owner-actions">
+          <button class="edit-btn" @click="goEdit">编辑信息</button>
+          <button class="del-btn" @click="handleOwnerDelete">删除</button>
+        </view>
       </view>
 
       <!-- 已找到/已关闭提示 -->
@@ -132,6 +136,34 @@
         <text class="found-tip" :class="item.status">
           {{ item.status === 'found' ? '✅ 已标记为找到' : '🔒 已关闭' }}
         </text>
+      </view>
+
+      <!-- ==================== 管理员操作区 ==================== -->
+      <view v-if="isAdmin && !isOwner" class="admin-action-area">
+        <text class="admin-label">🔧 管理员操作</text>
+        <view class="admin-btns">
+          <button
+            v-if="item.status === 'active'"
+            class="admin-btn close-btn"
+            @click="handleAdminClose"
+          >
+            关闭信息
+          </button>
+          <button
+            v-if="item.status === 'closed'"
+            class="admin-btn reopen-btn"
+            @click="handleAdminReopen"
+          >
+            重新启用
+          </button>
+          <button
+            class="admin-btn found-btn-admin"
+            v-if="item.status === 'active'"
+            @click="handleAdminMarkFound"
+          >
+            标记已找到
+          </button>
+        </view>
       </view>
 
       <!-- 底部安全区 -->
@@ -144,7 +176,8 @@
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { getDetail, markAsFound, getMatches } from '@/api/item.js'
+import { getDetail, markAsFound, getMatches, deleteItem, adminUpdateStatus, updateItem } from '@/api/item.js'
+import { BASE_URL } from '@/api/request.js'
 import { useUserStore } from '@/store/user.js'
 
 const userStore = useUserStore()
@@ -158,17 +191,25 @@ const matches = ref([])
 
 // ==================== 计算属性 ====================
 
-// 解析图片列表（数据库存的是 JSON 字符串）
+// 解析图片列表（数据库存的是 JSON 字符串），相对路径补全为完整 URL
+const serverBase = BASE_URL.replace('/api', '') // http://10.23.177.44:3000
 const parsedImages = computed(() => {
   if (!item.value.images) return []
-  if (Array.isArray(item.value.images)) return item.value.images
-  try { return JSON.parse(item.value.images) } catch { return [] }
+  let arr = item.value.images
+  if (!Array.isArray(arr)) {
+    try { arr = JSON.parse(arr) } catch { return [] }
+  }
+  // 相对路径（/uploads/...）补全为完整 URL
+  return arr.map(url => url.startsWith('http') ? url : serverBase + url)
 })
 
 // 是否是发布者
 const isOwner = computed(() => {
   return userStore.userInfo && item.value.user_id === userStore.userInfo.id
 })
+
+// 是否是管理员
+const isAdmin = computed(() => userStore.isAdmin)
 
 // 联系方式是否是手机号
 const isPhoneNumber = computed(() => {
@@ -284,6 +325,31 @@ function goDetail(id) {
   uni.navigateTo({ url: `/pages/detail/detail?id=${id}` })
 }
 
+// ==================== 发布者操作 ====================
+
+function goEdit() {
+  uni.navigateTo({ url: `/pages/publish/publish?id=${item.value.id}` })
+}
+
+function handleOwnerDelete() {
+  uni.showModal({
+    title: '删除确认',
+    content: '确定要删除这条信息吗？',
+    confirmText: '删除',
+    confirmColor: '#E74C3C',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await deleteItem(item.value.id)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 800)
+      } catch (err) {
+        console.error('删除失败:', err)
+      }
+    }
+  })
+}
+
 /**
  * 格式化完整时间（2026-06-15 14:30:00 → 2026年6月15日 14:30）
  */
@@ -292,6 +358,74 @@ function formatFullTime(timeStr) {
   const d = new Date(timeStr)
   if (isNaN(d.getTime())) return timeStr
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// ==================== 管理员操作 ====================
+
+/**
+ * 管理员关闭信息（二次确认）
+ */
+function handleAdminClose() {
+  uni.showModal({
+    title: '管理员操作',
+    content: '确定要关闭此信息吗？关闭后普通用户将不可见。',
+    confirmText: '确认关闭',
+    confirmColor: '#E74C3C',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await adminUpdateStatus(item.value.id, 'closed')
+        uni.showToast({ title: '已关闭', icon: 'success' })
+        item.value.status = 'closed'
+      } catch (err) {
+        console.error('关闭失败:', err)
+      }
+    }
+  })
+}
+
+/**
+ * 管理员重新启用信息
+ */
+function handleAdminReopen() {
+  uni.showModal({
+    title: '管理员操作',
+    content: '确定要重新启用此信息吗？',
+    confirmText: '确认启用',
+    confirmColor: '#4A90D9',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await adminUpdateStatus(item.value.id, 'active')
+        uni.showToast({ title: '已启用', icon: 'success' })
+        item.value.status = 'active'
+      } catch (err) {
+        console.error('启用失败:', err)
+      }
+    }
+  })
+}
+
+/**
+ * 管理员标记已找到
+ */
+function handleAdminMarkFound() {
+  uni.showModal({
+    title: '管理员操作',
+    content: '确定要将此信息标记为"已找到"吗？',
+    confirmText: '确认',
+    confirmColor: '#27AE60',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await adminUpdateStatus(item.value.id, 'found')
+        uni.showToast({ title: '已标记为找到', icon: 'success' })
+        item.value.status = 'found'
+      } catch (err) {
+        console.error('操作失败:', err)
+      }
+    }
+  })
 }
 </script>
 
@@ -593,6 +727,34 @@ function formatFullTime(timeStr) {
   border: none;
 }
 
+.owner-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+
+.edit-btn {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  background-color: #F0F4FA;
+  color: #4A90D9;
+  font-size: 26rpx;
+  border-radius: 12rpx;
+  border: 1px solid #4A90D9;
+}
+
+.del-btn {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  background-color: #FFFFFF;
+  color: #E74C3C;
+  font-size: 26rpx;
+  border-radius: 12rpx;
+  border: 1px solid #E74C3C;
+}
+
 .found-tip {
   font-size: 28rpx;
 }
@@ -608,5 +770,52 @@ function formatFullTime(timeStr) {
 /* ==================== 底部安全区 ==================== */
 .bottom-safe {
   height: 40rpx;
+}
+
+/* ==================== 管理员操作区 ==================== */
+.admin-action-area {
+  padding: 24rpx;
+  background-color: #FFF9E6;
+  margin: 16rpx 24rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #F0E6C8;
+}
+
+.admin-label {
+  font-size: 24rpx;
+  color: #B8961A;
+  display: block;
+  margin-bottom: 16rpx;
+}
+
+.admin-btns {
+  display: flex;
+  flex-direction: row;
+  gap: 12rpx;
+}
+
+.admin-btn {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  font-size: 26rpx;
+  border-radius: 12rpx;
+  border: none;
+  text-align: center;
+}
+
+.close-btn {
+  background-color: #E74C3C;
+  color: #FFFFFF;
+}
+
+.reopen-btn {
+  background-color: #4A90D9;
+  color: #FFFFFF;
+}
+
+.found-btn-admin {
+  background-color: #27AE60;
+  color: #FFFFFF;
 }
 </style>

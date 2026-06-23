@@ -52,6 +52,10 @@
 <script setup>
 import { computed } from 'vue'
 import StatusBadge from './StatusBadge.vue'
+import { BASE_URL } from '@/api/request.js'
+
+// 服务器地址（用于补全相对路径图片）
+const serverBase = BASE_URL.replace('/api', '')
 
 // 接收物品数据
 const props = defineProps({
@@ -64,15 +68,16 @@ const props = defineProps({
 // 触发事件
 defineEmits(['click'])
 
-// 获取第一张图片
+// 获取第一张图片（相对路径补全为完整 URL）
 const firstImage = computed(() => {
   if (props.item.images) {
-    if (Array.isArray(props.item.images)) return props.item.images[0]
-    try {
-      return JSON.parse(props.item.images)[0]
-    } catch {
-      return props.item.images
+    let arr = props.item.images
+    if (!Array.isArray(arr)) {
+      try { arr = JSON.parse(arr) } catch { return '' }
     }
+    const url = arr[0] || ''
+    // 相对路径补全
+    return url.startsWith('http') ? url : serverBase + url
   }
   return ''
 })

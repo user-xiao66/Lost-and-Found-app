@@ -131,7 +131,7 @@
           :loading="loading"
           @click="handleSubmit"
         >
-          {{ loading ? '提交中...' : '确认发布' }}
+          {{ loading ? '提交中...' : (editId ? '保存修改' : '确认发布') }}
         </button>
       </view>
 
@@ -143,8 +143,9 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import ImageUploader from '@/components/ImageUploader.vue'
-import { publish, uploadImages } from '@/api/item.js'
+import { publish, uploadImages, updateItem, getDetail } from '@/api/item.js'
 
 // ==================== 分类选项 ====================
 const CATEGORIES = ['电子产品', '证件', '书籍', '衣物', '其他']
@@ -171,8 +172,50 @@ const errors = reactive({
 
 // ==================== 状态 ====================
 const loading = ref(false) // 提交中
+const editId = ref(null)   // 编辑模式下的物品 ID（null = 新建）
+
+// ==================== 生命周期 ====================
+
+onLoad((options) => {
+  if (options && options.id) {
+    editId.value = parseInt(options.id)
+    uni.setNavigationBarTitle({ title: '编辑信息' })
+    loadItemData(editId.value)
+  }
+})
 
 // ==================== 方法 ====================
+
+/**
+ * 编辑模式：加载已有物品数据回填表单
+ */
+async function loadItemData(id) {
+  try {
+    const data = await getDetail(id)
+    formData.type = data.type
+    formData.name = data.name
+    formData.category = data.category
+    formData.location = data.location
+    formData.contact = data.contact
+    formData.description = data.description || ''
+
+    // 解析时间
+    if (data.occur_time) {
+      formData.occur_date = data.occur_time.slice(0, 10)
+    }
+
+    // 解析图片
+    if (data.images) {
+      try {
+        const arr = JSON.parse(data.images)
+        formData.images = Array.isArray(arr) ? arr : []
+      } catch { formData.images = [] }
+    }
+  } catch (err) {
+    console.error('加载物品失败:', err)
+    uni.showToast({ title: '加载失败', icon: 'none' })
+  }
+}
 
 /**
  * 显示分类选择器（ActionSheet）
@@ -271,7 +314,7 @@ async function handleSubmit() {
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0') + ':00'
 
-    await publish({
+    const submitData = {
       type: formData.type,
       name: formData.name.trim(),
       category: formData.category || '其他',
@@ -280,14 +323,19 @@ async function handleSubmit() {
       contact: formData.contact.trim(),
       description: formData.description.trim() || null,
       images: imageUrls.length > 0 ? JSON.stringify(imageUrls) : null
-    })
+    }
 
-    uni.showToast({ title: '发布成功', icon: 'success' })
-
-    // 延迟返回首页
-    setTimeout(() => {
-      uni.switchTab({ url: '/pages/index/index' })
-    }, 800)
+    if (editId.value) {
+      // 编辑模式
+      await updateItem(editId.value, submitData)
+      uni.showToast({ title: '编辑成功', icon: 'success' })
+      setTimeout(() => uni.navigateBack(), 800)
+    } else {
+      // 新建模式
+      await publish(submitData)
+      uni.showToast({ title: '发布成功', icon: 'success' })
+      setTimeout(() => uni.switchTab({ url: '/pages/index/index' }), 800)
+    }
   } catch (err) {
     console.error('发布失败:', err)
   } finally {

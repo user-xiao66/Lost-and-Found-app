@@ -5,7 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { login as loginApi, register as registerApi, getProfile as getProfileApi } from '@/api/user.js'
+import { login as loginApi, register as registerApi, getProfile as getProfileApi, updateProfile as updateProfileApi } from '@/api/user.js'
 
 // 创建用户 Store
 export const useUserStore = defineStore('user', () => {
@@ -28,6 +28,9 @@ export const useUserStore = defineStore('user', () => {
 
   // 是否已登录
   const isLoggedIn = computed(() => !!token.value)
+
+  // 是否是管理员
+  const isAdmin = computed(() => userInfo.value?.role === 'admin')
 
   // ==================== 方法 ====================
 
@@ -80,13 +83,25 @@ export const useUserStore = defineStore('user', () => {
     uni.removeStorageSync('userInfo')
   }
 
+  /**
+   * 更新用户资料（昵称/头像）
+   * @param {Object} data - { nickname?, avatar? }
+   */
+  async function updateProfileAction(data) {
+    const updated = await updateProfileApi(data)
+    userInfo.value = { ...userInfo.value, ...updated }
+    uni.setStorageSync('userInfo', JSON.stringify(userInfo.value))
+  }
+
   return {
     token,
     userInfo,
     isLoggedIn,
+    isAdmin,
     loginAction,
     registerAction,
     fetchProfile,
-    logoutAction
+    logoutAction,
+    updateProfileAction
   }
 })

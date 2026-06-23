@@ -5,10 +5,18 @@
 -->
 <template>
   <view class="home-page">
-    <!-- 顶部搜索栏（点击跳转搜索页） -->
-    <view class="search-bar" @click="goSearch">
+    <!-- 顶部搜索栏 -->
+    <view class="search-bar">
       <text class="search-icon">🔍</text>
-      <text class="search-placeholder">搜索物品、地点...</text>
+      <input
+        class="search-input"
+        v-model="keyword"
+        placeholder="搜索物品、地点..."
+        placeholder-style="color: #BBBBBB"
+        confirm-type="search"
+        @confirm="onSearch"
+      />
+      <text v-if="keyword" class="search-clear" @click="clearSearch">✕</text>
     </view>
 
     <!-- 失物 / 招领 Tab 切换 -->
@@ -101,6 +109,8 @@ import { getList } from '@/api/item.js'
 
 // 当前激活的 Tab：'lost' | 'found'
 const activeTab = ref('lost')
+// 搜索关键词
+const keyword = ref('')
 // 物品列表
 const itemList = ref([])
 // 当前页码
@@ -159,11 +169,15 @@ async function resetAndLoad() {
  */
 async function fetchItems() {
   try {
-    const result = await getList({
+    const params = {
       type: activeTab.value,
       page: page.value,
       page_size: PAGE_SIZE
-    })
+    }
+    if (keyword.value.trim()) {
+      params.keyword = keyword.value.trim()
+    }
+    const result = await getList(params)
 
     if (page.value === 1) {
       // 首页数据
@@ -212,10 +226,18 @@ function goDetail(id) {
 }
 
 /**
- * 点击搜索栏跳转搜索页
+ * 点击搜索栏中的回车
  */
-function goSearch() {
-  uni.switchTab({ url: '/pages/search/search' })
+function onSearch() {
+  resetAndLoad()
+}
+
+/**
+ * 清空搜索关键词
+ */
+function clearSearch() {
+  keyword.value = ''
+  resetAndLoad()
 }
 
 /**
@@ -257,9 +279,23 @@ resetAndLoad()
   margin-right: 12rpx;
 }
 
-.search-placeholder {
+.search-input {
+  flex: 1;
   font-size: 26rpx;
-  color: #BBBBBB;
+  color: #333333;
+  height: 100%;
+}
+
+.search-clear {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background-color: #DDDDDD;
+  color: #FFFFFF;
+  font-size: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ==================== Tab 切换栏 ==================== */

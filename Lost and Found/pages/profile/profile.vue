@@ -7,15 +7,21 @@
   <view class="profile-page">
     <scroll-view class="profile-scroll" scroll-y>
       <!-- 用户信息卡片 -->
-      <view class="user-card">
+      <view class="user-card" @click="showEditDialog">
         <view class="avatar-wrap">
-          <text class="avatar-text">👤</text>
+          <image
+            v-if="userStore.userInfo?.avatar && userStore.userInfo.avatar.startsWith('http')"
+            :src="userStore.userInfo.avatar"
+            class="avatar-image"
+            mode="aspectFill"
+          />
+          <text v-else class="avatar-text">{{ userStore.userInfo?.avatar || '👤' }}</text>
         </view>
         <view class="user-info">
           <text class="user-name">{{ userStore.userInfo?.nickname || '用户' }}</text>
           <text class="user-phone">{{ userStore.userInfo?.phone || '' }}</text>
         </view>
-        <text class="edit-link" @click="goSettings">⚙️</text>
+        <text class="edit-link">✏️</text>
       </view>
 
       <!-- 统计数据 -->
@@ -56,6 +62,12 @@
             <text class="menu-arrow">›</text>
           </view>
         </view>
+        <!-- 管理员专属入口 -->
+        <view v-if="userStore.isAdmin" class="menu-item admin-menu" @click="goAdmin">
+          <text class="menu-icon">🛡️</text>
+          <text class="menu-text">管理面板</text>
+          <text class="menu-arrow">›</text>
+        </view>
         <view class="menu-item" @click="goSettings">
           <text class="menu-icon">⚙️</text>
           <text class="menu-text">设置</text>
@@ -70,6 +82,58 @@
 
       <view class="bottom-safe"></view>
     </scroll-view>
+
+    <!-- 编辑资料弹窗 -->
+    <view v-if="editVisible" class="dialog-mask" @click="editVisible = false">
+      <view class="dialog-box" @click.stop>
+        <text class="dialog-title">编辑资料</text>
+
+        <view class="dialog-row">
+          <text class="dialog-label">昵称</text>
+          <input
+            class="dialog-input"
+            v-model="editNickname"
+            maxlength="20"
+            placeholder="2-20个字符"
+            placeholder-style="color: #CCCCCC"
+            :focus="editFocus === 'nickname'"
+            @focus="editFocus = 'nickname'"
+          />
+        </view>
+
+        <view class="dialog-row">
+          <text class="dialog-label">头像</text>
+          <view class="avatar-picker" @click="pickAvatar">
+            <image
+              v-if="editAvatar && editAvatar.startsWith('http')"
+              :src="editAvatar"
+              class="avatar-img-preview"
+              mode="aspectFill"
+            />
+            <text v-else-if="editAvatar" class="avatar-preview">{{ editAvatar }}</text>
+            <text v-else class="avatar-placeholder">点击选择头像</text>
+            <text class="picker-arrow">›</text>
+          </view>
+          <!-- 快捷 emoji 头像 -->
+          <view class="emoji-row">
+            <text
+              v-for="emoji in avatarOptions"
+              :key="emoji"
+              class="emoji-item"
+              :class="{ selected: editAvatar === emoji }"
+              @click="editAvatar = emoji"
+            >{{ emoji }}</text>
+          </view>
+        </view>
+
+        <view class="dialog-btns">
+          <button class="dialog-cancel" @click="editVisible = false">取消</button>
+          <button class="dialog-save" :disabled="!editNickname || saving" :loading="saving" @click="saveProfile">
+            {{ saving ? '保存中...' : '保存' }}
+          </button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -79,6 +143,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user.js'
 import { getMyItems } from '@/api/item.js'
 import { getUnreadCount } from '@/api/notification.js'
+import { uploadImages } from '@/api/item.js'
 
 const userStore = useUserStore()
 
@@ -96,12 +161,11 @@ onShow(async () => {
   try {
     // 并行加载三项统计数据
     const [lostRes, foundRes, unreadRes] = await Promise.all([
-      getMyItems({ status: '', page_size: 1 }),     // 全部失物
-      getMyItems({ status: '', page_size: 1 }),     // 全部招领
+      getMyItems({ type: 'lost', page_size: 1 }),   // 我的失物数量
+      getMyItems({ type: 'found', page_size: 1 }),  // 我的招领数量
       getUnreadCount().catch(() => ({ count: 0 }))  // 未读通知
     ])
 
-    // 根据 type 筛选（后端 getMyItems 返回当前用户全部物品）
     stats.value.myLostCount = lostRes.total || 0
     stats.value.myFoundCount = foundRes.total || 0
     stats.value.unreadNotif = unreadRes.count || 0
@@ -122,6 +186,67 @@ function goNotifications() {
 
 function goSettings() {
   uni.navigateTo({ url: '/pages/settings/settings' })
+}
+
+function goAdmin() {
+  uni.navigateTo({ url: '/pages/admin/items' })
+}
+
+// ==================== 编辑资料 ====================
+const editVisible = ref(false)
+const editNickname = ref('')
+const editAvatar = ref('')
+const editFocus = ref('')
+const saving = ref(false)
+
+const avatarOptions = ['👤', '😊', '😎', '🐱', '🐶', '🦊', '🐼', '🐨', '🌟', '🎓', '💼', '🏀']
+
+function showEditDialog() {
+  editNickname.value = userStore.userInfo?.nickname || ''
+  editAvatar.value = userStore.userInfo?.avatar || ''
+  editFocus.value = 'nickname'
+  editVisible.value = true
+}
+
+function pickAvatar() {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: (res) => {
+      const tempPath = res.tempFilePaths[0]
+      // 上传到服务器
+      uni.showLoading({ title: '上传中...' })
+      uploadImages([tempPath]).then(urls => {
+        uni.hideLoading()
+        if (urls.length > 0) {
+          editAvatar.value = urls[0] // 使用上传后的完整 URL
+        }
+      }).catch(() => {
+        uni.hideLoading()
+        uni.showToast({ title: '上传失败', icon: 'none' })
+      })
+    }
+  })
+}
+
+async function saveProfile() {
+  if (!editNickname.value || editNickname.value.length < 2) {
+    uni.showToast({ title: '昵称至少2个字符', icon: 'none' })
+    return
+  }
+  saving.value = true
+  try {
+    await userStore.updateProfileAction({
+      nickname: editNickname.value,
+      avatar: editAvatar.value
+    })
+    uni.showToast({ title: '保存成功', icon: 'success' })
+    editVisible.value = false
+  } catch (err) {
+    console.error('保存失败:', err)
+  } finally {
+    saving.value = false
+  }
 }
 
 // ==================== 退出登录 ====================
@@ -177,6 +302,12 @@ function handleLogout() {
 
 .avatar-text {
   font-size: 56rpx;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
 }
 
 .user-info {
@@ -297,6 +428,16 @@ function handleLogout() {
   text-align: center;
 }
 
+/* 管理员菜单高亮 */
+.admin-menu {
+  background-color: #FDF8E8;
+}
+
+.admin-menu .menu-text {
+  color: #B8961A;
+  font-weight: 600;
+}
+
 /* ==================== 退出登录 ==================== */
 .logout-area {
   padding: 32rpx 24rpx;
@@ -316,5 +457,133 @@ function handleLogout() {
 /* ==================== 底部安全区 ==================== */
 .bottom-safe {
   height: 40rpx;
+}
+
+/* ==================== 编辑资料弹窗 ==================== */
+.dialog-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.dialog-box {
+  width: 600rpx;
+  background-color: #FFFFFF;
+  border-radius: 20rpx;
+  padding: 40rpx 32rpx 32rpx 32rpx;
+}
+
+.dialog-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #333333;
+  display: block;
+  text-align: center;
+  margin-bottom: 36rpx;
+}
+
+.dialog-row {
+  margin-bottom: 28rpx;
+}
+
+.dialog-label {
+  font-size: 26rpx;
+  color: #999999;
+  margin-bottom: 12rpx;
+  display: block;
+}
+
+.dialog-input {
+  width: 100%;
+  height: 80rpx;
+  border: 1px solid #E0E0E0;
+  border-radius: 12rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+  background-color: #FAFAFA;
+}
+
+.avatar-picker {
+  display: flex;
+  align-items: center;
+  height: 80rpx;
+  border: 1px solid #E0E0E0;
+  border-radius: 12rpx;
+  padding: 0 20rpx;
+  background-color: #FAFAFA;
+}
+
+.avatar-preview {
+  font-size: 40rpx;
+}
+
+.avatar-placeholder {
+  font-size: 28rpx;
+  color: #CCCCCC;
+}
+
+.picker-arrow {
+  margin-left: auto;
+  font-size: 28rpx;
+  color: #CCCCCC;
+}
+
+.avatar-img-preview {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+}
+
+/* emoji 快捷选择 */
+.emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 16rpx;
+}
+
+.emoji-item {
+  font-size: 40rpx;
+  padding: 8rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid transparent;
+}
+
+.emoji-item.selected {
+  border-color: #4A90D9;
+  background-color: #E8F2FD;
+}
+
+.dialog-btns {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 12rpx;
+}
+
+.dialog-cancel {
+  flex: 1;
+  height: 80rpx;
+  line-height: 80rpx;
+  background-color: #F5F6FA;
+  color: #666666;
+  font-size: 28rpx;
+  border-radius: 12rpx;
+  border: none;
+}
+
+.dialog-save {
+  flex: 1;
+  height: 80rpx;
+  line-height: 80rpx;
+  background-color: #4A90D9;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: bold;
+  border-radius: 12rpx;
+  border: none;
 }
 </style>

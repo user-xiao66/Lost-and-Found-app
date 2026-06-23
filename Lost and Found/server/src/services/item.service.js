@@ -37,16 +37,17 @@ async function publish(data) {
  *
  * @param {number} id      - 物品 ID
  * @param {number} [userId] - 当前登录用户 ID（可选，用于判断是否为发布者）
+ * @param {boolean} [isAdmin=false] - 是否管理员（管理员不脱敏）
  * @returns {Promise<Object>} 物品详情
  */
-async function getDetail(id, userId) {
+async function getDetail(id, userId, isAdmin = false) {
   const item = await itemModel.findById(id)
   if (!item) {
     throw { code: 404, message: '物品信息不存在' }
   }
 
-  // 联系方式脱敏：非发布者中间 4 位显示为 ****
-  if (item.contact && String(item.user_id) !== String(userId)) {
+  // 联系方式脱敏：管理员或发布者本人可见原始联系方式
+  if (item.contact && !isAdmin && String(item.user_id) !== String(userId)) {
     item.contact = maskContact(item.contact)
   }
 
@@ -61,22 +62,24 @@ async function getDetail(id, userId) {
  * @returns {Promise<Object>} 分页结果 { list, total, page, page_size, total_pages }
  */
 async function getList(query) {
-  const { type, keyword, category, location, status, page = 1, pageSize = 10 } = query
+  const { type, keyword, category, location, status, page = 1, pageSize = 10, isAdmin = false } = query
   const { list, total } = await itemModel.findList({
     type,
     keyword,
     category,
     location,
-    status: status || 'active', // 默认只查"寻找中"状态的物品
+    status: status || undefined,  // 不传则查全部，非管理员默认active由controller控制
     page: parseInt(page),
     pageSize: parseInt(pageSize)
   })
 
-  // 列表中的联系方式全部脱敏
-  const maskedList = list.map(item => ({
-    ...item,
-    contact: maskContact(item.contact)
-  }))
+  // 管理员不脱敏，普通用户脱敏
+  const maskedList = isAdmin
+    ? list
+    : list.map(item => ({
+        ...item,
+        contact: maskContact(item.contact)
+      }))
 
   return paginatedResult(maskedList, total, page, pageSize)
 }
@@ -117,6 +120,39 @@ async function markAsFound(id, userId) {
 }
 
 /**
+ * 更新物品信息（仅发布者本人）
+ */
+async function updateItem(id, userId, data) {
+  const item = await itemModel.findById(id)
+  if (!item) throw { code: 404, message: '物品信息不存在' }
+  if (String(item.user_id) !== String(userId)) throw { code: 403, message: '仅发布者可编辑' }
+
+  const updates = {}
+  if (data.name !== undefined) updates.name = data.name
+  if (data.category !== undefined) updates.category = data.category
+  if (data.location !== undefined) updates.location = data.location
+  if (data.occur_time !== undefined) updates.occur_time = data.occur_time
+  if (data.contact !== undefined) updates.contact = data.contact
+  if (data.description !== undefined) updates.description = data.description
+  if (data.images !== undefined) updates.images = data.images
+
+  await itemModel.updateItem(id, updates)
+  return await itemModel.findById(id)
+}
+
+/**
+ * 删除物品（发布者或管理员）
+ */
+async function deleteItem(id, userId, isAdmin) {
+  const item = await itemModel.findById(id)
+  if (!item) throw { code: 404, message: '物品信息不存在' }
+  if (!isAdmin && String(item.user_id) !== String(userId)) {
+    throw { code: 403, message: '仅发布者或管理员可删除' }
+  }
+  await itemModel.updateStatus(id, 'closed')
+}
+
+/**
  * 联系方式脱敏
  * 手机号中间 4 位替换为 ****，其他类型仅保留首尾字符
  *
@@ -136,4 +172,4 @@ function maskContact(contact) {
   return '****'
 }
 
-module.exports = { publish, getDetail, getList, getMyItems, markAsFound }
+module.exports = { publish, getDetail, getList, getMyItems, markAsFound, updateItem, deleteItem }

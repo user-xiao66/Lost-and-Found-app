@@ -9,10 +9,10 @@
  * - Promise 风格返回
  */
 
-// 后端 API 基地址（当前电脑局域网 IP，如 WiFi 重连后 IP 可能变化需更新）
-// Android 模拟器改为 http://10.0.2.2:3000/api
-// 浏览器开发改为 http://localhost:3000/api
-const BASE_URL = 'http://10.21.130.165:3000/api'
+// 后端 API 基地址（WiFi 重连后 IP 可能变化，在此更新）
+// Android 模拟器：http://10.0.2.2:3000/api
+// 浏览器开发：http://localhost:3000/api
+const BASE_URL = 'http://10.108.250.60:3000/api'
 
 /**
  * 发起 GET 请求
@@ -21,7 +21,13 @@ const BASE_URL = 'http://10.21.130.165:3000/api'
  * @returns {Promise} 返回业务数据
  */
 function get(url, params = {}) {
-  return request('GET', url, params)
+  // uni.request GET 不会自动拼接 query string，需手动构建
+  const keys = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== '')
+  if (keys.length > 0) {
+    const qs = keys.map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v)).join('&')
+    url = url + '?' + qs
+  }
+  return request('GET', url)
 }
 
 /**
@@ -95,4 +101,4 @@ function request(method, url, data = {}) {
   })
 }
 
-export { get, post, put }
+export { get, post, put, BASE_URL }

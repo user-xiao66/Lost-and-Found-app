@@ -3,7 +3,7 @@
  * 包含注册、登录、获取用户资料
  */
 
-import { post, get } from './request.js'
+import { post, get, put } from './request.js'
 
 /**
  * 用户注册
@@ -29,4 +29,13 @@ export function login(data) {
  */
 export function getProfile() {
   return get('/users/profile')
+}
+
+/**
+ * 更新当前用户资料
+ * @param {Object} data - { nickname?, avatar? }
+ * @returns {Promise<Object>} 更新后的用户信息
+ */
+export function updateProfile(data) {
+  return put('/users/profile', data)
 }

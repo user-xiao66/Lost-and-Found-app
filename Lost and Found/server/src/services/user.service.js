@@ -16,10 +16,11 @@ const TOKEN_EXPIRES_IN = '7d'
 /**
  * 生成 JWT token
  * @param {number} userId - 用户 ID
+ * @param {string} role - 用户角色（'user' | 'admin'）
  * @returns {string} JWT token 字符串
  */
-function generateToken(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: TOKEN_EXPIRES_IN })
+function generateToken(userId, role) {
+  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: TOKEN_EXPIRES_IN })
 }
 
 /**
@@ -48,8 +49,8 @@ async function register({ nickname, phone, password, avatar }) {
   // 4. 查询用户信息（不含密码）
   const user = await userModel.findById(id)
 
-  // 5. 生成 token
-  const token = generateToken(id)
+  // 5. 生成 token（新用户默认 role='user'）
+  const token = generateToken(id, 'user')
 
   return { token, user }
 }
@@ -72,8 +73,8 @@ async function login({ phone, password }) {
     throw { code: 400, message: '密码错误' }
   }
 
-  // 3. 生成 token
-  const token = generateToken(user.id)
+  // 3. 生成 token（携带用户角色）
+  const token = generateToken(user.id, user.role || 'user')
 
   // 4. 返回用户信息（不含密码）
   const userInfo = await userModel.findById(user.id)
@@ -94,4 +95,22 @@ async function getProfile(userId) {
   return user
 }
 
-module.exports = { register, login, getProfile }
+/**
+ * 更新用户资料
+ * @param {number} userId - 用户 ID
+ * @param {Object} data - { nickname?, avatar? }
+ * @returns {Promise<Object>} 更新后的用户信息
+ */
+async function updateProfile(userId, data) {
+  // 校验昵称
+  if (data.nickname !== undefined) {
+    if (!data.nickname || data.nickname.length < 2 || data.nickname.length > 20) {
+      throw { code: 400, message: '昵称需在2-20个字符之间' }
+    }
+  }
+  await userModel.updateProfile(userId, data)
+  // 返回最新资料
+  return await userModel.findById(userId)
+}
+
+module.exports = { register, login, getProfile, updateProfile }

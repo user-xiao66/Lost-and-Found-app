@@ -69,6 +69,14 @@
       "style": {
         "navigationBarTitleText": "我的发布"
       }
+    },
+    {
+      "path": "pages/admin/items",
+      "style": {
+        "navigationBarTitleText": "管理面板",
+        "navigationBarBackgroundColor": "#2C3E50",
+        "navigationBarTextStyle": "white"
+      }
     }
   ],
   "tabBar": {

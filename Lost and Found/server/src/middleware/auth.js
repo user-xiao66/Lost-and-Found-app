@@ -10,7 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'lost_and_found_secret_key_2026'
 
 /**
  * 认证中间件
- * 验证请求头中的 Bearer token，将 userId 挂载到 req.userId
+ * 验证请求头中的 Bearer token，将 userId 和 role 挂载到 req
  */
 function auth(req, res, next) {
   // 从 Authorization 请求头获取 token
@@ -28,7 +28,8 @@ function auth(req, res, next) {
   try {
     // 验证 JWT token
     const decoded = jwt.verify(token, JWT_SECRET)
-    req.userId = decoded.userId // 将用户 ID 挂载到请求对象
+    req.userId = decoded.userId   // 将用户 ID 挂载到请求对象
+    req.userRole = decoded.role || 'user'  // 挂载角色，默认 user
     next()
   } catch (error) {
     return res.json({
@@ -41,8 +42,7 @@ function auth(req, res, next) {
 
 /**
  * 可选认证中间件
- * 有 token 则注入 userId，无 token 则继续（不拦截）
- * 用于列表/详情等公开接口，让 service 层自行决定是否脱敏
+ * 有 token 则注入 userId + role，无 token 则继续（不拦截）
  */
 function optionalAuth(req, res, next) {
   const authHeader = req.headers.authorization
@@ -50,12 +50,42 @@ function optionalAuth(req, res, next) {
     const token = authHeader.split(' ')[1]
     try {
       const decoded = jwt.verify(token, JWT_SECRET)
-      req.userId = decoded.userId // 注入 userId
+      req.userId = decoded.userId
+      req.userRole = decoded.role || 'user'
     } catch (error) {
-      // token 无效也不拦截，仅不注入 userId
+      // token 无效也不拦截，仅不注入
     }
   }
   next()
 }
 
-module.exports = { auth, optionalAuth, JWT_SECRET }
+/**
+ * 管理员认证中间件
+ * 先验证 JWT，然后检查 role 是否为 admin
+ * 用于：删除物品、强制关闭等管理员专属操作
+ */
+function adminAuth(req, res, next) {
+  const authHeader = req.headers.authorization
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.json({ code: 401, message: '未登录', data: null })
+  }
+
+  const token = authHeader.split(' ')[1]
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+
+    // 检查是否为管理员
+    if (decoded.role !== 'admin') {
+      return res.json({ code: 403, message: '无权限，仅管理员可操作', data: null })
+    }
+
+    req.userId = decoded.userId
+    req.userRole = decoded.role
+    next()
+  } catch (error) {
+    return res.json({ code: 401, message: 'token 无效或已过期', data: null })
+  }
+}
+
+module.exports = { auth, optionalAuth, adminAuth, JWT_SECRET }

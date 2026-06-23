@@ -163,4 +163,23 @@ async function findByUserId(userId, type, status, page = 1, pageSize = 10) {
   return { list, total }
 }
 
-module.exports = { create, findById, findList, updateStatus, findByUserId }
+/**
+ * 更新物品字段
+ * @param {number} id     - 物品 ID
+ * @param {Object} data   - { name?, category?, location?, occur_time?, contact?, description?, images? }
+ */
+async function updateItem(id, data) {
+  const fields = []
+  const params = []
+  for (const key of ['name', 'category', 'location', 'occur_time', 'contact', 'description', 'images']) {
+    if (data[key] !== undefined) {
+      fields.push(`\`${key}\` = ?`)
+      params.push(data[key])
+    }
+  }
+  if (fields.length === 0) return
+  params.push(id)
+  await query(`UPDATE \`item\` SET ${fields.join(', ')} WHERE \`id\` = ?`, params)
+}
+
+module.exports = { create, findById, findList, updateStatus, findByUserId, updateItem }

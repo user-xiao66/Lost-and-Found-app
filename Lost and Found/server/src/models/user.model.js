@@ -22,7 +22,7 @@ async function findByPhone(phone) {
  */
 async function findById(id) {
   const rows = await query(
-    'SELECT id, nickname, phone, avatar, created_at FROM `user` WHERE `id` = ?',
+    'SELECT id, nickname, phone, role, avatar, created_at FROM `user` WHERE `id` = ?',
     [id]
   )
   return rows[0] || null
@@ -51,4 +51,25 @@ async function updatePassword(id, newPassword) {
   await query('UPDATE `user` SET `password` = ? WHERE `id` = ?', [newPassword, id])
 }
 
-module.exports = { findByPhone, findById, create, updatePassword }
+/**
+ * 更新用户资料（昵称、头像）
+ * @param {number} id - 用户 ID
+ * @param {Object} data - { nickname?, avatar? }
+ */
+async function updateProfile(id, data) {
+  const fields = []
+  const params = []
+  if (data.nickname !== undefined) {
+    fields.push('`nickname` = ?')
+    params.push(data.nickname)
+  }
+  if (data.avatar !== undefined) {
+    fields.push('`avatar` = ?')
+    params.push(data.avatar)
+  }
+  if (fields.length === 0) return
+  params.push(id)
+  await query(`UPDATE \`user\` SET ${fields.join(', ')} WHERE \`id\` = ?`, params)
+}
+
+module.exports = { findByPhone, findById, create, updatePassword, updateProfile }
