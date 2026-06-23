@@ -37,6 +37,7 @@
           <view class="notif-content">
             <!-- 匹配信息 -->
             <view class="notif-title">
+              <text class="match-status-tag">{{ matchStatusLabel(n) }}</text>
               <text class="match-emoji">🎯</text>
               <text class="match-text">物品匹配提醒</text>
             </view>
@@ -94,7 +95,10 @@
 <script setup>
 import { ref } from 'vue'
 import { getList, markAsRead } from '@/api/notification.js'
+import { useUserStore } from '@/store/user.js'
 import EmptyState from '@/components/EmptyState.vue'
+
+const userStore = useUserStore()
 
 // ==================== 状态 ====================
 const notifList = ref([])
@@ -155,13 +159,27 @@ async function handleNotifClick(notif) {
     }
   }
 
-  // 跳转到失物详情（通常看对方物品）
-  uni.navigateTo({ url: `/pages/detail/detail?id=${notif.lost_item_id}` })
+  const currentUserId = userStore.userInfo?.id
+  const targetId = String(currentUserId) === String(notif.lost_user_id)
+    ? notif.found_item_id
+    : notif.lost_item_id
+  uni.navigateTo({ url: `/pages/detail/detail?id=${targetId}` })
 }
 
 /**
  * 格式化时间
  */
+function matchStatusLabel(notif) {
+  const statusMap = {
+    pending: '待处理',
+    contacted: '已联系',
+    rejected: '已排除',
+    confirmed: '待双方确认',
+    completed: '已完成'
+  }
+  return statusMap[notif.match_status] || '待处理'
+}
+
 function formatTime(timeStr) {
   if (!timeStr) return ''
   const d = new Date(timeStr)
@@ -283,17 +301,29 @@ function formatTime(timeStr) {
 }
 
 .match-emoji {
+  order: 1;
   font-size: 28rpx;
   margin-right: 8rpx;
 }
 
 .match-text {
+  order: 2;
   font-size: 28rpx;
   font-weight: 600;
   color: #333333;
 }
 
 /* ==================== 匹配物品对 ==================== */
+.match-status-tag {
+  order: 3;
+  margin-left: auto;
+  font-size: 22rpx;
+  color: #4A90D9;
+  background-color: #E8F2FD;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+}
+
 .match-pair {
   display: flex;
   flex-direction: row;

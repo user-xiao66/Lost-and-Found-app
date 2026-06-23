@@ -11,11 +11,11 @@ const { query } = require('../config/db')
  * @returns {Promise<Object>} { id: 新记录的 ID }
  */
 async function create(data) {
-  const { user_id, type, name, category = '其他', location, occur_time, contact, description = null, images = null } = data
+  const { user_id, type, name, category = '其他', location, occur_time, contact, description = null, images = null, expires_at = null } = data
   const result = await query(
-    `INSERT INTO \`item\` (\`user_id\`, \`type\`, \`name\`, \`category\`, \`location\`, \`occur_time\`, \`contact\`, \`description\`, \`images\`)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [user_id, type, name, category, location, occur_time, contact, description, images]
+    `INSERT INTO \`item\` (\`user_id\`, \`type\`, \`name\`, \`category\`, \`location\`, \`occur_time\`, \`contact\`, \`description\`, \`images\`, \`expires_at\`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [user_id, type, name, category, location, occur_time, contact, description, images, expires_at]
   )
   return { id: result.insertId }
 }
@@ -50,7 +50,7 @@ async function findById(id) {
  * @param {number}  options.pageSize - 每页条数，默认 10
  * @returns {Promise<{ list: Array, total: number }>} 列表 + 总数
  */
-async function findList({ type, keyword, category, location, status, page = 1, pageSize = 10 }) {
+async function findList({ type, keyword, category, location, status, startDate, endDate, page = 1, pageSize = 10 }) {
   // 构建动态 WHERE 条件
   const conditions = []
   const params = []
@@ -75,6 +75,14 @@ async function findList({ type, keyword, category, location, status, page = 1, p
     conditions.push('i.`status` = ?')
     params.push(status)
   }
+  if (startDate) {
+    conditions.push('i.`occur_time` >= ?')
+    params.push(startDate)
+  }
+  if (endDate) {
+    conditions.push('i.`occur_time` <= ?')
+    params.push(endDate)
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
@@ -87,8 +95,7 @@ async function findList({ type, keyword, category, location, status, page = 1, p
 
   // 分页查询列表，按发布时间倒序，关联用户表获取昵称和头像
   // 注意：MySQL 不支持 LIMIT/OFFSET 用 ? 占位符，必须字面值拼接（已 parseInt 确保整数）
-  const offset = (parseInt(page) - 1) * parseInt(pageSize)
-  const limitVal = parseInt(pageSize)
+  const { limitVal, offset } = normalizePagination(page, pageSize)
   const list = await query(
     `SELECT i.*, u.nickname AS user_nickname, u.avatar AS user_avatar
      FROM \`item\` i
@@ -148,8 +155,7 @@ async function findByUserId(userId, type, status, page = 1, pageSize = 10) {
 
   // 分页查询
   // 注意：MySQL 不支持 LIMIT/OFFSET 用 ? 占位符，必须字面值拼接（已 parseInt 确保整数）
-  const offset = (parseInt(page) - 1) * parseInt(pageSize)
-  const limitVal = parseInt(pageSize)
+  const { limitVal, offset } = normalizePagination(page, pageSize)
   const list = await query(
     `SELECT i.*, u.nickname AS user_nickname, u.avatar AS user_avatar
      FROM \`item\` i
@@ -182,4 +188,20 @@ async function updateItem(id, data) {
   await query(`UPDATE \`item\` SET ${fields.join(', ')} WHERE \`id\` = ?`, params)
 }
 
-module.exports = { create, findById, findList, updateStatus, findByUserId, updateItem }
+async function expireOverdueActiveItems() {
+  await query(
+    'UPDATE `item` SET `status` = ? WHERE `status` = ? AND `expires_at` IS NOT NULL AND `expires_at` < NOW()',
+    ['expired', 'active']
+  )
+}
+
+function normalizePagination(page, pageSize) {
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1)
+  const sizeNum = Math.min(Math.max(parseInt(pageSize, 10) || 10, 1), 50)
+  return {
+    limitVal: sizeNum,
+    offset: (pageNum - 1) * sizeNum
+  }
+}
+
+module.exports = { create, findById, findList, updateStatus, findByUserId, updateItem, expireOverdueActiveItems }

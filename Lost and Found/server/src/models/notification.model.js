@@ -37,12 +37,18 @@ async function findByUserId(userId, page = 1, pageSize = 10) {
 
   // 分页查询通知列表，关联 match + item 获取双方物品信息
   // 注意：MySQL 不支持 LIMIT/OFFSET 用 ? 占位符，必须字面值拼接（已 parseInt 确保整数）
-  const offset = (parseInt(page) - 1) * parseInt(pageSize)
-  const limitVal = parseInt(pageSize)
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1)
+  const limitVal = Math.min(Math.max(parseInt(pageSize, 10) || 10, 1), 50)
+  const offset = (pageNum - 1) * limitVal
   const list = await query(
     `SELECT n.*,
             m.match_score,
+            m.status AS match_status,
+            m.lost_confirmed,
+            m.found_confirmed,
             m.lost_item_id, m.found_item_id,
+            li.user_id AS lost_user_id,
+            fi.user_id AS found_user_id,
             li.name AS lost_item_name,
             fi.name AS found_item_name
      FROM \`notification\` n
@@ -70,6 +76,22 @@ async function markAsRead(id) {
 }
 
 /**
+ * 查询当前用户的一条通知，校验归属并返回关联物品 ID。
+ */
+async function findByIdAndUserId(id, userId) {
+  const rows = await query(
+    `SELECT n.*,
+            m.lost_item_id,
+            m.found_item_id
+     FROM \`notification\` n
+     JOIN \`match\` m ON n.match_id = m.id
+     WHERE n.id = ? AND n.user_id = ?`,
+    [id, userId]
+  )
+  return rows[0] || null
+}
+
+/**
  * 统计用户未读通知数量
  * @param {number} userId - 用户 ID
  * @returns {Promise<number>} 未读通知数
@@ -82,4 +104,4 @@ async function countUnread(userId) {
   return rows[0].count
 }
 
-module.exports = { create, findByUserId, markAsRead, countUnread }
+module.exports = { create, findByUserId, markAsRead, findByIdAndUserId, countUnread }

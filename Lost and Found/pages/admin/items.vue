@@ -84,7 +84,7 @@
               @click="handleClose(item)"
             >关闭</text>
             <text
-              v-if="item.status === 'closed'"
+              v-if="item.status === 'closed' || item.status === 'expired'"
               class="card-action-btn reopen-action"
               @click="handleReopen(item)"
             >启用</text>
@@ -128,7 +128,8 @@ const statusTabs = [
   { label: '全部', value: '' },
   { label: '寻找中', value: 'active' },
   { label: '已找到', value: 'found' },
-  { label: '已关闭', value: 'closed' }
+  { label: '已关闭', value: 'closed' },
+  { label: '已过期', value: 'expired' }
 ]
 
 // ==================== 列表数据 ====================

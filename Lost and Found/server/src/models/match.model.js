@@ -18,6 +18,44 @@ async function create({ lost_item_id, found_item_id, match_score }) {
   return { id: result.insertId }
 }
 
+async function findById(id) {
+  const rows = await query(
+    `SELECT m.*,
+            li.user_id AS lost_user_id,
+            fi.user_id AS found_user_id,
+            li.status AS lost_item_status,
+            fi.status AS found_item_status
+     FROM \`match\` m
+     JOIN \`item\` li ON m.lost_item_id = li.id
+     JOIN \`item\` fi ON m.found_item_id = fi.id
+     WHERE m.id = ?`,
+    [id]
+  )
+  return rows[0] || null
+}
+
+async function updateStatus(id, status) {
+  await query(
+    'UPDATE `match` SET `status` = ? WHERE `id` = ?',
+    [status, id]
+  )
+}
+
+async function confirmBySide(id, side) {
+  const field = side === 'lost' ? 'lost_confirmed' : 'found_confirmed'
+  await query(
+    `UPDATE \`match\` SET \`${field}\` = 1, \`status\` = IF(\`status\` = 'pending', 'confirmed', \`status\`) WHERE \`id\` = ?`,
+    [id]
+  )
+}
+
+async function complete(id) {
+  await query(
+    'UPDATE `match` SET `status` = ?, `completed_at` = NOW() WHERE `id` = ?',
+    ['completed', id]
+  )
+}
+
 /**
  * 根据失物 ID 查询匹配记录（含关联的招领信息）
  * 用于：查看某失物匹配到了哪些招领
@@ -27,11 +65,13 @@ async function create({ lost_item_id, found_item_id, match_score }) {
  */
 async function findByLostItemId(lostItemId) {
   const rows = await query(
-    `SELECT m.*, fi.name AS found_item_name, fi.location AS found_item_location,
+    `SELECT m.*, li.user_id AS lost_user_id, fi.user_id AS found_user_id,
+            fi.name AS found_item_name, fi.location AS found_item_location,
             fi.images AS found_item_images, fi.status AS found_item_status
      FROM \`match\` m
+     JOIN \`item\` li ON m.lost_item_id = li.id
      JOIN \`item\` fi ON m.found_item_id = fi.id
-     WHERE m.lost_item_id = ?
+     WHERE m.lost_item_id = ? AND m.status <> 'rejected'
      ORDER BY m.match_score DESC, m.created_at DESC`,
     [lostItemId]
   )
@@ -47,15 +87,25 @@ async function findByLostItemId(lostItemId) {
  */
 async function findByFoundItemId(foundItemId) {
   const rows = await query(
-    `SELECT m.*, li.name AS lost_item_name, li.location AS lost_item_location,
+    `SELECT m.*, li.user_id AS lost_user_id, fi.user_id AS found_user_id,
+            li.name AS lost_item_name, li.location AS lost_item_location,
             li.images AS lost_item_images, li.status AS lost_item_status
      FROM \`match\` m
      JOIN \`item\` li ON m.lost_item_id = li.id
-     WHERE m.found_item_id = ?
+     JOIN \`item\` fi ON m.found_item_id = fi.id
+     WHERE m.found_item_id = ? AND m.status <> 'rejected'
      ORDER BY m.match_score DESC, m.created_at DESC`,
     [foundItemId]
   )
   return rows
 }
 
-module.exports = { create, findByLostItemId, findByFoundItemId }
+module.exports = {
+  create,
+  findById,
+  updateStatus,
+  confirmBySide,
+  complete,
+  findByLostItemId,
+  findByFoundItemId
+}

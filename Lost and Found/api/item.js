@@ -113,6 +113,18 @@ export function getMatches(id) {
   return get(`/items/${id}/matches`)
 }
 
+export function markMatchContacted(id) {
+  return put(`/matches/${id}/contacted`)
+}
+
+export function rejectMatch(id) {
+  return put(`/matches/${id}/reject`)
+}
+
+export function confirmMatch(id) {
+  return put(`/matches/${id}/confirm`)
+}
+
 // ==================== 管理员 API ====================
 
 /**

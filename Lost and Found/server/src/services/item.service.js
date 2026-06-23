@@ -1,27 +1,20 @@
 /**
- * 物品信息业务逻辑层
- * 处理物品发布、查询、状态更新等核心业务
+ * 物品业务逻辑层
  */
 
 const itemModel = require('../models/item.model')
 const matchService = require('./match.service')
+const { query } = require('../config/db')
 const { paginatedResult } = require('../utils/pagination')
 
-/**
- * 发布物品信息
- * 创建物品后自动触发匹配逻辑
- *
- * @param {Object} data - 物品数据（含 user_id）
- * @returns {Promise<Object>} 创建后的物品详情
- */
 async function publish(data) {
-  // 1. 创建物品记录
-  const { id } = await itemModel.create(data)
+  if (!data.expires_at) {
+    data.expires_at = getDefaultExpiresAt()
+  }
 
-  // 2. 查询完整信息（含发布者昵称）
+  const { id } = await itemModel.create(data)
   const item = await itemModel.findById(id)
 
-  // 3. 异步触发匹配（不阻塞发布响应）
   setImmediate(() => {
     matchService.tryMatch(item).catch(err => {
       console.error('匹配失败:', err.message)
@@ -31,118 +24,107 @@ async function publish(data) {
   return item
 }
 
-/**
- * 获取物品详情
- * 非发布者查看时会脱敏联系方式
- *
- * @param {number} id      - 物品 ID
- * @param {number} [userId] - 当前登录用户 ID（可选，用于判断是否为发布者）
- * @param {boolean} [isAdmin=false] - 是否管理员（管理员不脱敏）
- * @returns {Promise<Object>} 物品详情
- */
 async function getDetail(id, userId, isAdmin = false) {
+  await itemModel.expireOverdueActiveItems()
+
   const item = await itemModel.findById(id)
   if (!item) {
     throw { code: 404, message: '物品信息不存在' }
   }
 
-  // 联系方式脱敏：管理员或发布者本人可见原始联系方式
-  if (item.contact && !isAdmin && String(item.user_id) !== String(userId)) {
+  const isOwner = String(item.user_id) === String(userId)
+  const isMatchedParticipant = await canViewItemRelations(item, userId, isAdmin)
+
+  if (item.status !== 'active' && !isOwner && !isAdmin && !isMatchedParticipant) {
+    throw { code: 404, message: '物品信息不存在或已结束' }
+  }
+
+  if (item.contact && !isOwner && !isAdmin && !isMatchedParticipant) {
     item.contact = maskContact(item.contact)
   }
 
   return item
 }
 
-/**
- * 分页查询物品列表
- * 支持按类型、关键词、分类、地点、状态筛选
- *
- * @param {Object} query - 筛选参数
- * @returns {Promise<Object>} 分页结果 { list, total, page, page_size, total_pages }
- */
-async function getList(query) {
-  const { type, keyword, category, location, status, page = 1, pageSize = 10, isAdmin = false } = query
+async function getList(filters) {
+  await itemModel.expireOverdueActiveItems()
+
+  const {
+    type,
+    keyword,
+    category,
+    location,
+    status,
+    startDate,
+    endDate,
+    page = 1,
+    pageSize = 10,
+    isAdmin = false
+  } = filters
+
   const { list, total } = await itemModel.findList({
     type,
     keyword,
     category,
     location,
-    status: status || undefined,  // 不传则查全部，非管理员默认active由controller控制
-    page: parseInt(page),
-    pageSize: parseInt(pageSize)
+    startDate,
+    endDate,
+    status: status || undefined,
+    page: parseInt(page, 10),
+    pageSize: parseInt(pageSize, 10)
   })
 
-  // 管理员不脱敏，普通用户脱敏
-  const maskedList = isAdmin
+  const safeList = isAdmin
     ? list
     : list.map(item => ({
         ...item,
         contact: maskContact(item.contact)
       }))
 
-  return paginatedResult(maskedList, total, page, pageSize)
+  return paginatedResult(safeList, total, page, pageSize)
 }
 
-/**
- * 查询当前用户发布的物品（分页）
- *
- * @param {number} userId - 用户 ID
- * @param {string} [type]   - 按类型筛选 'lost' | 'found'
- * @param {string} [status] - 按状态筛选
- * @param {number} [page=1]
- * @param {number} [pageSize=10]
- * @returns {Promise<Object>} 分页结果
- */
 async function getMyItems(userId, type, status, page = 1, pageSize = 10) {
+  await itemModel.expireOverdueActiveItems()
+
   const { list, total } = await itemModel.findByUserId(userId, type, status, page, pageSize)
-  // 自己的物品不脱敏联系方式
   return paginatedResult(list, total, page, pageSize)
 }
 
-/**
- * 标记物品为"已找到"
- * 仅发布者本人可操作
- *
- * @param {number} id     - 物品 ID
- * @param {number} userId - 操作用户 ID
- */
-async function markAsFound(id, userId) {
+async function markAsFound(id, userId, status = 'found') {
   const item = await itemModel.findById(id)
   if (!item) {
     throw { code: 404, message: '物品信息不存在' }
   }
-  // 仅发布者可标记
   if (String(item.user_id) !== String(userId)) {
-    throw { code: 403, message: '仅发布者可标记已找到' }
+    throw { code: 403, message: '仅发布者可更新状态' }
   }
-  await itemModel.updateStatus(id, 'found')
+  if (!['found', 'closed'].includes(status)) {
+    throw { code: 400, message: '状态只能为 found 或 closed' }
+  }
+
+  await itemModel.updateStatus(id, status)
 }
 
-/**
- * 更新物品信息（仅发布者本人）
- */
 async function updateItem(id, userId, data) {
   const item = await itemModel.findById(id)
   if (!item) throw { code: 404, message: '物品信息不存在' }
   if (String(item.user_id) !== String(userId)) throw { code: 403, message: '仅发布者可编辑' }
+  if (item.status !== 'active') throw { code: 400, message: '已结束或已关闭的信息不能编辑' }
+
+  validateItemUpdate(data)
 
   const updates = {}
-  if (data.name !== undefined) updates.name = data.name
-  if (data.category !== undefined) updates.category = data.category
-  if (data.location !== undefined) updates.location = data.location
-  if (data.occur_time !== undefined) updates.occur_time = data.occur_time
-  if (data.contact !== undefined) updates.contact = data.contact
-  if (data.description !== undefined) updates.description = data.description
-  if (data.images !== undefined) updates.images = data.images
+  for (const key of ['name', 'category', 'location', 'occur_time', 'contact', 'description', 'images']) {
+    if (data[key] !== undefined) {
+      updates[key] = data[key]
+    }
+  }
 
   await itemModel.updateItem(id, updates)
-  return await itemModel.findById(id)
+  return itemModel.findById(id)
 }
 
-/**
- * 删除物品（发布者或管理员）
- */
 async function deleteItem(id, userId, isAdmin) {
   const item = await itemModel.findById(id)
   if (!item) throw { code: 404, message: '物品信息不存在' }
@@ -152,24 +134,90 @@ async function deleteItem(id, userId, isAdmin) {
   await itemModel.updateStatus(id, 'closed')
 }
 
-/**
- * 联系方式脱敏
- * 手机号中间 4 位替换为 ****，其他类型仅保留首尾字符
- *
- * @param {string} contact - 原始联系方式
- * @returns {string} 脱敏后的联系方式
- */
+async function canViewItemRelations(item, userId, isAdmin = false) {
+  if (isAdmin) return true
+  if (!item || !userId) return false
+  if (String(item.user_id) === String(userId)) return true
+
+  const rows = await query(
+    `SELECT COUNT(*) AS count
+     FROM \`match\` m
+     JOIN \`item\` li ON m.lost_item_id = li.id
+     JOIN \`item\` fi ON m.found_item_id = fi.id
+     WHERE (m.lost_item_id = ? OR m.found_item_id = ?)
+       AND (li.user_id = ? OR fi.user_id = ?)`,
+    [item.id, item.id, userId, userId]
+  )
+
+  return rows[0].count > 0
+}
+
+function validateItemUpdate(data) {
+  if (data.name !== undefined && (!String(data.name).trim() || String(data.name).length > 50)) {
+    throw { code: 400, message: '物品名称不能为空且不能超过50个字符' }
+  }
+  if (data.location !== undefined && (!String(data.location).trim() || String(data.location).length > 200)) {
+    throw { code: 400, message: '地点不能为空且不能超过200个字符' }
+  }
+  if (data.contact !== undefined && (!String(data.contact).trim() || String(data.contact).length > 100)) {
+    throw { code: 400, message: '联系方式不能为空且不能超过100个字符' }
+  }
+  if (data.description !== undefined && data.description && String(data.description).length > 500) {
+    throw { code: 400, message: '详细描述不能超过500个字符' }
+  }
+  if (data.images !== undefined && data.images) {
+    const imageList = parseImageList(data.images)
+    if (imageList.length > 4) {
+      throw { code: 400, message: '图片最多上传4张' }
+    }
+  }
+}
+
+function parseImageList(images) {
+  if (Array.isArray(images)) return images
+  if (typeof images !== 'string') return []
+  try {
+    const parsed = JSON.parse(images)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function getDefaultExpiresAt() {
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + 30)
+  return formatDateTime(expiresAt)
+}
+
+function formatDateTime(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  const s = String(date.getSeconds()).padStart(2, '0')
+  return `${y}-${m}-${d} ${h}:${min}:${s}`
+}
+
 function maskContact(contact) {
   if (!contact) return ''
-  // 手机号：138****5678
   if (/^1\d{10}$/.test(contact)) {
     return contact.slice(0, 3) + '****' + contact.slice(7)
   }
-  // 其他格式（如微信号）：只显示前 2 位 + ****
   if (contact.length > 4) {
     return contact.slice(0, 2) + '****' + contact.slice(-2)
   }
   return '****'
 }
 
-module.exports = { publish, getDetail, getList, getMyItems, markAsFound, updateItem, deleteItem }
+module.exports = {
+  publish,
+  getDetail,
+  getList,
+  getMyItems,
+  markAsFound,
+  updateItem,
+  deleteItem,
+  canViewItemRelations
+}

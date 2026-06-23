@@ -73,6 +73,15 @@
         <text class="section-title">发布者信息</text>
         <view class="publisher-row">
           <view class="avatar-placeholder">👤</view>
+          <image
+            v-if="publisherAvatarUrl"
+            :src="publisherAvatarUrl"
+            mode="aspectFill"
+            class="publisher-avatar"
+          />
+          <view v-if="!publisherAvatarUrl" class="publisher-avatar-fallback">
+            <text>{{ publisherAvatarText }}</text>
+          </view>
           <view class="publisher-info">
             <text class="publisher-name">{{ item.user_nickname || '用户' }}</text>
             <text class="publisher-contact">{{ item.contact }}</text>
@@ -112,6 +121,18 @@
           <view class="match-card-left">
             <text class="match-item-name">{{ matchItemName(m) }}</text>
             <text class="match-item-location">{{ matchItemLocation(m) }}</text>
+            <text class="match-status">{{ matchStatusLabel(m) }}</text>
+            <view v-if="canOperateMatch(m)" class="match-actions">
+              <button class="match-action-btn contacted-btn" @click.stop="handleMatchContacted(m)">
+                已联系
+              </button>
+              <button class="match-action-btn reject-btn" @click.stop="handleRejectMatch(m)">
+                不是这个
+              </button>
+              <button class="match-action-btn confirm-btn" @click.stop="handleConfirmMatch(m)">
+                确认找回
+              </button>
+            </view>
           </view>
           <view class="match-card-right">
             <text class="match-score">匹配度 {{ m.match_score }}分</text>
@@ -150,7 +171,7 @@
             关闭信息
           </button>
           <button
-            v-if="item.status === 'closed'"
+            v-if="item.status === 'closed' || item.status === 'expired'"
             class="admin-btn reopen-btn"
             @click="handleAdminReopen"
           >
@@ -176,7 +197,16 @@
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { getDetail, markAsFound, getMatches, deleteItem, adminUpdateStatus, updateItem } from '@/api/item.js'
+import {
+  getDetail,
+  markAsFound,
+  getMatches,
+  deleteItem,
+  adminUpdateStatus,
+  markMatchContacted,
+  rejectMatch,
+  confirmMatch
+} from '@/api/item.js'
 import { BASE_URL } from '@/api/request.js'
 import { useUserStore } from '@/store/user.js'
 
@@ -201,6 +231,14 @@ const parsedImages = computed(() => {
   }
   // 相对路径（/uploads/...）补全为完整 URL
   return arr.map(url => url.startsWith('http') ? url : serverBase + url)
+})
+
+const publisherAvatarUrl = computed(() => normalizeAssetUrl(item.value.user_avatar))
+
+const publisherAvatarText = computed(() => {
+  const avatar = item.value.user_avatar
+  if (avatar && !normalizeAssetUrl(avatar)) return avatar
+  return '👤'
 })
 
 // 是否是发布者
@@ -272,6 +310,45 @@ function matchItemLocation(m) {
   return item.value.type === 'lost' ? m.found_item_location : m.lost_item_location
 }
 
+function matchStatusLabel(m) {
+  const statusMap = {
+    pending: '待处理',
+    contacted: '已联系',
+    rejected: '已排除',
+    confirmed: '等待确认',
+    completed: '双方已确认'
+  }
+  if (m.status === 'confirmed') {
+    const side = currentUserMatchSide(m)
+    if (!side) return '等待双方确认'
+    const confirmed = side === 'lost' ? m.lost_confirmed : m.found_confirmed
+    return confirmed ? '已确认，等待对方确认' : '对方已确认，等待你确认'
+  }
+  return statusMap[m.status] || '待处理'
+}
+
+function canOperateMatch(m) {
+  const oppositeStatus = item.value.type === 'lost' ? m.found_item_status : m.lost_item_status
+  return currentUserMatchSide(m) &&
+    item.value.status === 'active' &&
+    oppositeStatus === 'active' &&
+    !['rejected', 'completed'].includes(m.status)
+}
+
+function currentUserMatchSide(m) {
+  const currentUserId = userStore.userInfo?.id
+  if (String(currentUserId) === String(m.lost_user_id)) return 'lost'
+  if (String(currentUserId) === String(m.found_user_id)) return 'found'
+  return ''
+}
+
+function normalizeAssetUrl(url) {
+  if (!url || typeof url !== 'string') return ''
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/uploads/')) return serverBase + url
+  return ''
+}
+
 // ==================== 操作 ====================
 
 /**
@@ -326,6 +403,60 @@ function goDetail(id) {
 }
 
 // ==================== 发布者操作 ====================
+
+async function refreshMatchContext() {
+  if (!item.value.id) return
+  await loadDetail(item.value.id)
+  await loadMatches(item.value.id)
+}
+
+async function handleMatchContacted(m) {
+  try {
+    await markMatchContacted(m.id)
+    uni.showToast({ title: '已标记联系', icon: 'success' })
+    await refreshMatchContext()
+  } catch (err) {
+    console.error('标记联系失败:', err)
+  }
+}
+
+function handleRejectMatch(m) {
+  uni.showModal({
+    title: '排除匹配',
+    content: '确认这不是对应物品吗？排除后该匹配不会继续显示。',
+    confirmText: '确认排除',
+    confirmColor: '#E74C3C',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await rejectMatch(m.id)
+        uni.showToast({ title: '已排除', icon: 'success' })
+        await refreshMatchContext()
+      } catch (err) {
+        console.error('排除匹配失败:', err)
+      }
+    }
+  })
+}
+
+function handleConfirmMatch(m) {
+  uni.showModal({
+    title: '确认找回',
+    content: '确认该匹配已经完成归还吗？双方都确认后，失物和招领信息会自动标记为已找回。',
+    confirmText: '确认',
+    confirmColor: '#27AE60',
+    success: async (res) => {
+      if (!res.confirm) return
+      try {
+        await confirmMatch(m.id)
+        uni.showToast({ title: '确认成功', icon: 'success' })
+        await refreshMatchContext()
+      } catch (err) {
+        console.error('确认匹配失败:', err)
+      }
+    }
+  })
+}
 
 function goEdit() {
   uni.navigateTo({ url: `/pages/publish/publish?id=${item.value.id}` })
@@ -600,15 +731,24 @@ function handleAdminMarkFound() {
 }
 
 .avatar-placeholder {
+  display: none;
+}
+
+.publisher-avatar,
+.publisher-avatar-fallback {
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 20rpx;
+}
+
+.publisher-avatar-fallback {
   background-color: #F0F4FA;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 36rpx;
-  margin-right: 20rpx;
 }
 
 .publisher-info {
@@ -690,6 +830,48 @@ function handleAdminMarkFound() {
 .match-item-location {
   font-size: 24rpx;
   color: #999999;
+}
+
+.match-status {
+  display: inline-block;
+  font-size: 22rpx;
+  color: #666666;
+  background-color: #F0F4FA;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  margin-top: 10rpx;
+}
+
+.match-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 10rpx;
+  margin-top: 14rpx;
+}
+
+.match-action-btn {
+  height: 52rpx;
+  line-height: 52rpx;
+  padding: 0 16rpx;
+  margin: 0;
+  font-size: 22rpx;
+  border-radius: 8rpx;
+  background-color: #FFFFFF;
+}
+
+.contacted-btn {
+  color: #4A90D9;
+  border: 1rpx solid #4A90D9;
+}
+
+.reject-btn {
+  color: #E74C3C;
+  border: 1rpx solid #E74C3C;
+}
+
+.confirm-btn {
+  color: #27AE60;
+  border: 1rpx solid #27AE60;
 }
 
 .match-card-right {

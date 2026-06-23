@@ -64,6 +64,10 @@ router.get('/items/:id', optionalAuth, itemController.getDetail)
 // 物品的匹配推荐：GET /api/items/:id/matches（公开）
 router.get('/items/:id/matches', optionalAuth, matchController.getMatches)
 
+router.put('/matches/:id/contacted', auth, matchController.markContacted)
+router.put('/matches/:id/reject', auth, matchController.reject)
+router.put('/matches/:id/confirm', auth, matchController.confirm)
+
 // 标记已找到/已关闭：PUT /api/items/:id/status（需登录）
 router.put('/items/:id/status', auth, itemController.markAsFound)
 

@@ -20,6 +20,7 @@ CREATE TABLE `user` (
   `nickname` VARCHAR(50) NOT NULL COMMENT '用户昵称',
   `phone` VARCHAR(11) NOT NULL COMMENT '手机号，唯一，用于登录',
   `password` VARCHAR(255) NOT NULL COMMENT '加密存储的密码',
+  `role` ENUM('user', 'admin') NOT NULL DEFAULT 'user' COMMENT '用户角色：user=普通用户 / admin=管理员',
   `avatar` VARCHAR(255) DEFAULT NULL COMMENT '头像 URL',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   PRIMARY KEY (`id`),
@@ -41,7 +42,8 @@ CREATE TABLE `item` (
   `contact` VARCHAR(100) NOT NULL COMMENT '联系方式',
   `description` TEXT DEFAULT NULL COMMENT '详细描述',
   `images` TEXT DEFAULT NULL COMMENT '图片 URL 列表，JSON 数组格式，最多 4 张',
-  `status` ENUM('active', 'found', 'closed') NOT NULL DEFAULT 'active' COMMENT '状态：active=寻找中 / found=已找到 / closed=已关闭',
+  `status` ENUM('active', 'found', 'closed', 'expired') NOT NULL DEFAULT 'active' COMMENT '状态：active=寻找中 / found=已找到 / closed=已关闭 / expired=已过期',
+  `expires_at` DATETIME DEFAULT NULL COMMENT '信息有效期，超过后自动过期',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
@@ -63,6 +65,10 @@ CREATE TABLE `match` (
   `lost_item_id` INT NOT NULL COMMENT '外键，失物 ID，关联 item 表',
   `found_item_id` INT NOT NULL COMMENT '外键，招领 ID，关联 item 表',
   `match_score` INT NOT NULL DEFAULT 0 COMMENT '匹配度评分（基于关键词重合数）',
+  `status` ENUM('pending', 'contacted', 'rejected', 'confirmed', 'completed') NOT NULL DEFAULT 'pending' COMMENT '匹配处理状态',
+  `lost_confirmed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '失主是否确认',
+  `found_confirmed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '拾主是否确认',
+  `completed_at` DATETIME DEFAULT NULL COMMENT '双方确认完成时间',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '匹配生成时间',
   PRIMARY KEY (`id`),
   KEY `idx_lost_item` (`lost_item_id`),
@@ -94,6 +100,7 @@ CREATE TABLE `notification` (
 -- 种子数据：插入 2 条测试用户
 -- 密码均为 "123456" 使用 bcrypt 加密后的值
 -- =============================================================
-INSERT INTO `user` (`nickname`, `phone`, `password`, `created_at`) VALUES
-('张同学', '13800001111', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', NOW()),
-('李同学', '13800002222', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', NOW());
+INSERT INTO `user` (`nickname`, `phone`, `password`, `role`, `created_at`) VALUES
+('张同学', '13800001111', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'user', NOW()),
+('李同学', '13800002222', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'user', NOW()),
+('管理员', '13800009999', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'admin', NOW());

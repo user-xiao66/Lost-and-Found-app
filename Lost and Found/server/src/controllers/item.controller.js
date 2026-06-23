@@ -30,6 +30,23 @@ async function publish(req, res) {
       return res.json(error(400, '物品名称不能超过50个字符'))
     }
 
+    if (location.length > 200) {
+      return res.json(error(400, '地点不能超过200个字符'))
+    }
+
+    if (contact.length > 100) {
+      return res.json(error(400, '联系方式不能超过100个字符'))
+    }
+
+    if (description && description.length > 500) {
+      return res.json(error(400, '详细描述不能超过500个字符'))
+    }
+
+    const imageList = normalizeImages(images)
+    if (imageList.length > 4) {
+      return res.json(error(400, '图片最多上传4张'))
+    }
+
     // 构建数据，user_id 从认证中间件获取
     const data = {
       user_id: req.userId,
@@ -40,7 +57,7 @@ async function publish(req, res) {
       occur_time,
       contact,
       description: description || null,
-      images: images ? (typeof images === 'string' ? images : JSON.stringify(images)) : null
+      images: imageList.length > 0 ? JSON.stringify(imageList) : null
     }
 
     const item = await itemService.publish(data)
@@ -48,6 +65,20 @@ async function publish(req, res) {
   } catch (err) {
     res.json(error(err.code || 500, err.message || '发布失败'))
   }
+}
+
+function normalizeImages(images) {
+  if (!images) return []
+  if (Array.isArray(images)) return images.filter(Boolean)
+  if (typeof images === 'string') {
+    try {
+      const parsed = JSON.parse(images)
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : []
+    } catch {
+      return []
+    }
+  }
+  return []
 }
 
 /**
@@ -73,7 +104,7 @@ async function getDetail(req, res) {
  */
 async function getList(req, res) {
   try {
-    const { type, keyword, category, location, status, page, page_size } = req.query
+    const { type, keyword, category, location, status, start_date, end_date, page, page_size } = req.query
     // 管理员可查看所有状态的物品，不脱敏联系方式
     const isAdmin = req.userRole === 'admin'
     const result = await itemService.getList({
@@ -81,6 +112,8 @@ async function getList(req, res) {
       keyword,
       category,
       location,
+      startDate: start_date,
+      endDate: end_date,
       status: isAdmin ? (status || undefined) : (status || 'active'), // 非管理员默认只看active
       page: page || 1,
       pageSize: page_size || 10,
@@ -130,7 +163,7 @@ async function markAsFound(req, res) {
       return res.json(error(400, '状态只能为 found 或 closed'))
     }
 
-    await itemService.markAsFound(parseInt(id), req.userId)
+    await itemService.markAsFound(parseInt(id), req.userId, status)
     res.json(success(null, '状态更新成功'))
   } catch (err) {
     res.json(error(err.code || 500, err.message || '状态更新失败'))
@@ -179,8 +212,8 @@ async function adminUpdateStatus(req, res) {
     const { id } = req.params
     const { status } = req.body
 
-    if (!status || !['active', 'found', 'closed'].includes(status)) {
-      return res.json(error(400, 'status 必须为 active/found/closed'))
+    if (!status || !['active', 'found', 'closed', 'expired'].includes(status)) {
+      return res.json(error(400, 'status 必须为 active/found/closed/expired'))
     }
 
     const itemModel = require('../models/item.model')

@@ -136,7 +136,9 @@ onShow(() => {
   if (!token) {
     // 未登录，跳转到登录页面
     uni.navigateTo({ url: '/pages/login/login' })
+    return
   }
+  resetAndLoad()
 })
 
 // ==================== 方法 ====================
@@ -249,7 +251,6 @@ function goPublish() {
 
 // ==================== 初始化 ====================
 
-resetAndLoad()
 </script>
 
 <style scoped>

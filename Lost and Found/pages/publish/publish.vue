@@ -296,17 +296,20 @@ async function handleSubmit() {
 
   loading.value = true
   try {
-    // 1. 先上传图片（如果有选择图片）
-    let imageUrls = []
-    if (formData.images.length > 0) {
+    // 1. 仅上传本地临时图片，编辑时保留已有的远程图片 URL。
+    const existingImageUrls = formData.images.filter(isRemoteImage)
+    const localImages = formData.images.filter(img => !isRemoteImage(img))
+    let uploadedImageUrls = []
+    if (localImages.length > 0) {
       uni.showToast({ title: '正在上传图片...', icon: 'loading', duration: 10000 })
-      imageUrls = await uploadImages(formData.images)
-      if (imageUrls.length === 0 && formData.images.length > 0) {
+      uploadedImageUrls = await uploadImages(localImages)
+      if (uploadedImageUrls.length === 0) {
         uni.showToast({ title: '图片上传失败，请重试', icon: 'none' })
         loading.value = false
         return
       }
     }
+    const imageUrls = [...existingImageUrls, ...uploadedImageUrls]
 
     // 2. 构建提交数据
     const now = new Date()
@@ -341,6 +344,10 @@ async function handleSubmit() {
   } finally {
     loading.value = false
   }
+}
+
+function isRemoteImage(url) {
+  return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/uploads/'))
 }
 </script>
 

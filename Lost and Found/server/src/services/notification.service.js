@@ -32,9 +32,8 @@ async function getList(userId, page = 1, pageSize = 10) {
  * @returns {Promise<Object>} { lost_item_id, found_item_id }
  */
 async function markAsRead(id, userId) {
-  // 通过 findByUserId 验证通知是否属于当前用户
-  const { list } = await notificationModel.findByUserId(userId, 1, 100)
-  const notification = list.find(n => String(n.id) === String(id))
+  // 直接按通知 ID + 用户 ID 查询，避免分页范围导致后续通知无法标记。
+  const notification = await notificationModel.findByIdAndUserId(id, userId)
 
   if (!notification) {
     throw { code: 404, message: '通知不存在' }

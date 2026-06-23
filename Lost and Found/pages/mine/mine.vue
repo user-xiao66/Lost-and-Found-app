@@ -32,7 +32,7 @@
         :key="s.value"
         class="status-opt"
         :class="{ active: statusFilter === s.value }"
-        @click="statusFilter = statusFilter === s.value ? '' : s.value"
+        @click="switchStatus(s.value)"
       >{{ s.label }}</text>
     </view>
 
@@ -82,7 +82,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { getMyItems } from '@/api/item.js'
@@ -94,7 +94,8 @@ const tabType = ref('lost') // 'lost' | 'found'
 const statusOptions = [
   { label: '寻找中', value: 'active' },
   { label: '已找到', value: 'found' },
-  { label: '已关闭', value: 'closed' }
+  { label: '已关闭', value: 'closed' },
+  { label: '已过期', value: 'expired' }
 ]
 const statusFilter = ref('')
 
@@ -111,7 +112,10 @@ onLoad((options) => {
   if (options && options.type) {
     tabType.value = options.type
   }
-  loadData()
+})
+
+onShow(() => {
+  resetAndLoad()
 })
 
 // ==================== 方法 ====================
@@ -120,6 +124,11 @@ function switchType(type) {
   if (tabType.value === type) return
   tabType.value = type
   statusFilter.value = ''
+  resetAndLoad()
+}
+
+function switchStatus(status) {
+  statusFilter.value = statusFilter.value === status ? '' : status
   resetAndLoad()
 }
 

@@ -253,14 +253,19 @@ async function fetchResults() {
       params.location = filters.location
     }
 
-    // 时间筛选：计算起止日期
-    if (filters.time === 'today') {
-      const today = new Date()
-      const y = today.getFullYear()
-      const m = String(today.getMonth() + 1).padStart(2, '0')
-      const d = String(today.getDate()).padStart(2, '0')
-      params.keyword = params.keyword || ''
-      // 时间筛选通过后端 keyword 不直接支持，这里用前端方式
+    if (filters.time) {
+      const now = new Date()
+      const start = new Date(now)
+      if (filters.time === 'today') {
+        start.setHours(0, 0, 0, 0)
+      } else if (filters.time === '3days') {
+        start.setDate(start.getDate() - 3)
+      } else if (filters.time === '7days') {
+        start.setDate(start.getDate() - 7)
+      }
+
+      params.start_date = formatDateTime(start)
+      params.end_date = formatDateTime(now)
     }
 
     const result = await getList(params)
@@ -316,6 +321,16 @@ function resetFilters() {
  */
 function goDetail(id) {
   uni.navigateTo({ url: `/pages/detail/detail?id=${id}` })
+}
+
+function formatDateTime(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  const s = String(date.getSeconds()).padStart(2, '0')
+  return `${y}-${m}-${d} ${h}:${min}:${s}`
 }
 </script>
 

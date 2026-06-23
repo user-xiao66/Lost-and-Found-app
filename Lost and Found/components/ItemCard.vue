@@ -45,6 +45,19 @@
         <text class="divider">·</text>
         <text class="time">{{ formatTime(item.occur_time || item.created_at) }}</text>
       </view>
+
+      <view class="publisher-row">
+        <image
+          v-if="publisherAvatarUrl"
+          :src="publisherAvatarUrl"
+          mode="aspectFill"
+          class="publisher-avatar"
+        />
+        <view v-else class="publisher-avatar-fallback">
+          <text class="publisher-avatar-text">{{ publisherAvatarText }}</text>
+        </view>
+        <text class="publisher-name">{{ item.user_nickname || '用户' }}</text>
+      </view>
     </view>
   </view>
 </template>
@@ -81,6 +94,21 @@ const firstImage = computed(() => {
   }
   return ''
 })
+
+const publisherAvatarUrl = computed(() => normalizeAssetUrl(props.item.user_avatar))
+
+const publisherAvatarText = computed(() => {
+  const avatar = props.item.user_avatar
+  if (avatar && !normalizeAssetUrl(avatar)) return avatar
+  return '👤'
+})
+
+function normalizeAssetUrl(url) {
+  if (!url || typeof url !== 'string') return ''
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/uploads/')) return serverBase + url
+  return ''
+}
 
 // 格式化时间显示（去掉秒，显示"06-16 14:30"）
 function formatTime(timeStr) {
@@ -204,5 +232,42 @@ function formatTime(timeStr) {
 .time {
   font-size: 24rpx;
   color: #999999;
+}
+
+.publisher-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-top: 10rpx;
+  min-width: 0;
+}
+
+.publisher-avatar,
+.publisher-avatar-fallback {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 8rpx;
+}
+
+.publisher-avatar-fallback {
+  background-color: #F0F4FA;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.publisher-avatar-text {
+  font-size: 22rpx;
+  line-height: 1;
+}
+
+.publisher-name {
+  font-size: 22rpx;
+  color: #999999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
